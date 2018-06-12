@@ -11,19 +11,19 @@ contract Catalog {
     }
 
     struct ContentInfo {
-        address manager;
         address author;
         uint genre;
         uint views;
     }
 
     mapping (address => AuthorInfo) private authorInfos;
+    mapping (address => ContentInfo) private contentInfos;
     mapping (address => uint) private premiumAccounts;
     mapping (bytes32 => bool) private publishedContents;
 
     address private owner;
     address[] private authors;
-    ContentInfo[] private contents;
+    address[] private contents;
 
     uint private premiumCredit = 0 ether;
     uint private premiumViews = 0;
@@ -36,12 +36,12 @@ contract Catalog {
     uint public premiumFee = 0.01 ether;
     uint public premiumPeriod = 30 days;
 
-    event newAuthor(address _author);
-    event newContentPublished(address _content, address _author, uint _genre);
-    event newPremiumSubscription(address _account, uint _until);
-    event contentGranted(address _content, address _account, uint _until);
-    event creditAvailable(address _account);
-    event creditTransferred(address _account);
+    event NewAuthor(address author);
+    event NewContentPublished(address content, address author, string title, uint genre);
+    event NewPremiumSubscription(address account, uint until);
+    event ContentGranted(address content, address account, uint until);
+    event CreditAvailable(address account);
+    event CreditTransferred(address account);
 
 
     constructor() public {
@@ -81,21 +81,27 @@ contract Catalog {
 
     function publish(address _content) external {
         address author;
+        string memory title;
         uint genre;
         bytes32 fingerprint;
         BaseContentManager manager = BaseContentManager(_content);
-        (author, , , genre, fingerprint) = manager.getInfo();
+        (author, title, genre, fingerprint) = manager.getInfo();
         require(msg.sender == author, "Only the author of the content can publish it");
-        require(!publishedContents[fingerprint], "Content already published");
-        contents.push(ContentInfo(_content, author, genre, 0));
+        require(
+            !publishedContents[fingerprint] && contentInfos[_content].author == address(0), 
+            "Content already published"
+        );
+        contents.push(_content);
+        contentInfos[_content] = ContentInfo(author, genre, 0);
         publishedContents[fingerprint] = true;
 
         if (!authorInfos[author].registered) {
             authorInfos[author] = AuthorInfo(0, 0, 0, true);
-            emit newAuthor(author);
+            authors.push(author);
+            emit NewAuthor(author);
         }
 
-        emit newContentPublished(_content, author, genre);
+        emit NewContentPublished(_content, author, title, genre);
     }
 
     function buyPremium() external payable hasValue(premiumFee) {
@@ -103,74 +109,67 @@ contract Catalog {
         expirationTime = (expirationTime > now? expirationTime : now) + premiumPeriod;
         premiumAccounts[msg.sender] = expirationTime;
         premiumCredit += premiumFee;
-        emit newPremiumSubscription(msg.sender, expirationTime);
+        emit NewPremiumSubscription(msg.sender, expirationTime);
     }
 
-    function _grantContent(uint _contentID, address _account, uint _until) private {
-        BaseContentManager manager = BaseContentManager(contents[_contentID].manager);
+    function _grantContent(address _content, address _account, uint _until) private {
+        require(contentInfos[_content].author != address(0), "Content not found");
+        BaseContentManager manager = BaseContentManager(_content);
         manager.grantAccess(_account, _until);
-        contents[_contentID].views++;
-        emit contentGranted(manager, _account, _until);
+        contentInfos[_content].views++;
+        emit ContentGranted(_content, _account, _until);
     }
 
-    function getContent(uint _contentID) external payable hasValue(contentFee) {
-        _grantContent(_contentID, msg.sender, now + contentPeriod);
-        address author = contents[_contentID].author;
+    function getContent(address _content) external payable hasValue(contentFee) {
+        _grantContent(_content, msg.sender, now + contentPeriod);
+        address author = contentInfos[_content].author;
         AuthorInfo storage info = authorInfos[author];
         info.contentViews++;
-        info.contentViews += contentFee;
+        info.contentCredit += contentFee;
 
-        if (info.contentViews > payableViews) {
-            emit creditAvailable(author);
+        if (info.contentViews >= payableViews) {
+            emit CreditAvailable(author);
         }
     }
 
-    function giftContent(uint _contentID, address _account) public payable hasValue(contentFee) {
-        _grantContent(_contentID, _account, now + contentPeriod);
-        address author = contents[_contentID].author;
+    function giftContent(address _content, address _account) public payable hasValue(contentFee) {
+        _grantContent(_content, _account, now + contentPeriod);
+        address author = contentInfos[_content].author;
         AuthorInfo storage info = authorInfos[author];
         info.contentViews++;
-        info.contentViews += contentFee;
+        info.contentCredit += contentFee;
 
-        if (info.contentViews > payableViews) {
-            emit creditAvailable(author);
+        if (info.contentViews >= payableViews) {
+            emit CreditAvailable(author);
         }
     }
 
-    function getContentPremium(uint _contentID) external {
+    function getContentPremium(address _content) external {
         require(isPremium(msg.sender), "Premium subscription not found or expired");
-        _grantContent(_contentID, msg.sender, premiumAccounts[msg.sender]);
-        authorInfos[contents[_contentID].author].premiumViews++;
+        _grantContent(_content, msg.sender, premiumAccounts[msg.sender]);
+        authorInfos[contentInfos[_content].author].premiumViews++;
         premiumViews++;
     }
 
     function getContentList() external view returns (address[]) {
-        address[] memory result = new address[](contents.length);
-
-        for (uint i = 0; i < contents.length; i++) {
-            result[i] = contents[i].manager;
-        }
-
-        return result;
+        return contents;
     }
 
     function getStatistics() external view returns (address[], uint[]) {
-        address[] memory managers = new address[](contents.length);
         uint[] memory views = new uint[](contents.length);
 
         for (uint i = 0; i < contents.length; i++) {
-            managers[i] = contents[i].manager;
-            views[i] = contents[i].views;
+            views[i] = contentInfos[contents[i]].views;
         }
 
-        return (managers, views);
+        return (contents, views);
     }
 
     function getNewContentList(uint _size) external view returns (address[]) {
         address[] memory newests = new address[](_size);
 
         for (uint i = 0; i < _size && i < contents.length; i++) {
-            newests[i] = contents[contents.length - 1 - i].manager;
+            newests[i] = contents[contents.length - 1 - i];
         }
 
         return newests;
@@ -178,8 +177,8 @@ contract Catalog {
 
     function getLatestByGenre(uint _genre) external view returns (address) {
         for (uint i = contents.length - 1; i >= 0; i--) {
-            if (contents[i].genre == _genre) {
-                return contents[i].manager;
+            if (contentInfos[contents[i]].genre == _genre) {
+                return contents[i];
             }
         }
 
@@ -188,8 +187,8 @@ contract Catalog {
 
     function getLatestByAuthor(address _author) external view returns (address) {
         for (uint i = contents.length - 1; i >= 0; i--) {
-            if (contents[i].author == _author) {
-                return contents[i].manager;
+            if (contentInfos[contents[i]].author == _author) {
+                return contents[i];
             }
         }
 
@@ -201,9 +200,11 @@ contract Catalog {
         uint mostPopularViews;
 
         for (uint i = 0; i < contents.length; i++) {
-            if (contents[i].genre == _genre && contents[i].views >= mostPopularViews) {
-                mostPopular = contents[i].manager;
-                mostPopularViews = contents[i].views;
+            ContentInfo memory info = contentInfos[contents[i]];
+
+            if (info.genre == _genre && info.views >= mostPopularViews) {
+                mostPopular = contents[i];
+                mostPopularViews = info.views;
             }
         }
 
@@ -215,9 +216,11 @@ contract Catalog {
         uint mostPopularViews;
 
         for (uint i = 0; i < contents.length; i++) {
-            if (contents[i].author == _author && contents[i].views >= mostPopularViews) {
-                mostPopular = contents[i].manager;
-                mostPopularViews = contents[i].views;
+            ContentInfo memory info = contentInfos[contents[i]];
+
+            if (info.author == _author && info.views >= mostPopularViews) {
+                mostPopular = contents[i];
+                mostPopularViews = info.views;
             }
         }
 
@@ -225,14 +228,14 @@ contract Catalog {
     }
 
     function withdraw() external {
-        AuthorInfo storage senderInfo = authorInfos[msg.sender];
-        require(senderInfo.registered, "No contents found");
-        require(senderInfo.contentViews >= payableViews, "View count threshold not reached yet");
-        uint credit = senderInfo.contentCredit;
-        senderInfo.contentCredit = 0;
-        senderInfo.contentViews = 0;
+        AuthorInfo storage info = authorInfos[msg.sender];
+        require(info.registered, "No contents found");
+        require(info.contentViews >= payableViews, "View count threshold not reached yet");
+        uint credit = info.contentCredit;
+        info.contentCredit = 0;
+        info.contentViews = 0;
         msg.sender.transfer(credit);
-        emit creditTransferred(msg.sender);
+        emit CreditTransferred(msg.sender);
     }
 
     function transferPremiumCredits() public {
@@ -249,10 +252,10 @@ contract Catalog {
             AuthorInfo storage info = authorInfos[author];
             
             if (info.premiumViews > 0) {
-                uint credit = premiumCredit*info.premiumViews/premiumViews;
+                uint credit = (premiumCredit*info.premiumViews)/premiumViews;
                 info.premiumViews = 0;
                 author.transfer(credit);
-                emit creditTransferred(author);
+                emit CreditTransferred(author);
             }
         }
 
@@ -267,11 +270,11 @@ contract Catalog {
                 AuthorInfo memory info = authorInfos[author];
 
                 if (info.contentCredit > 0 || info.premiumViews > 0) {
-                    uint credit = info.contentCredit + premiumCredit*info.premiumViews/premiumViews;
+                    uint credit = info.contentCredit + (premiumCredit*info.premiumViews)/premiumViews;
                     info.contentCredit = 0;
                     info.premiumViews = 0;
                     author.transfer(credit);
-                    emit creditTransferred(author);
+                    emit CreditTransferred(author);
                 }
             }
         }

@@ -4,7 +4,6 @@ contract ContentManager {
     bytes private data;
     bytes32 private fingerprint;
     uint private genre;
-    string private description;
     string private title;
     address private author;
     address private publisher;
@@ -16,9 +15,9 @@ contract ContentManager {
         _;
     }
 
-    constructor (bytes _data, string _title, string _description, uint _genre) public {
+    constructor(bytes _data, string _title, uint _genre) public {
         require(
-            _data.length > 0 && bytes(_title).length > 0 && bytes(_description).length > 0,
+            _data.length > 0 && bytes(_title).length > 0,
             "All input data must be non-empty"
         );
 
@@ -26,11 +25,10 @@ contract ContentManager {
         fingerprint = keccak256(_data);
         genre = _genre;
         title = _title;
-        description = _description;
         author = msg.sender;
     }
 
-    function setPublisher(address _publisher) external onlyBy(author) {
+    function trustPublisher(address _publisher) external onlyBy(author) {
         publisher = _publisher;
     }
 
@@ -47,7 +45,7 @@ contract ContentManager {
         return data;
     }
 
-    function getInfo() external view returns (address, string, string, uint, bytes32) {
-        return (author, title, description, genre, fingerprint);
+    function getInfo() external view returns (address, string, uint, bytes32) {
+        return (author, title, genre, fingerprint);
     }
 }
