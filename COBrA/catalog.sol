@@ -68,6 +68,7 @@ contract Catalog {
     event CreditTransferred(address account);
 
 
+    /// @notice The constructor of the catalog
     /// @dev The creator becomes the owner of the catalog, remaining so for the
     ///      whole life-time of the catalog (the variable `owner` cannot be
     ///      modified)
