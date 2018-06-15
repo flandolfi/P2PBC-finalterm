@@ -10,9 +10,9 @@ import "./basecontentmanager.sol";
 contract Catalog {
 
     /// @dev Although it may seem redundant, `ContentCredit` stores the total 
-    ///      credit owed to an actor. This could have been simply evaluated with
-    ///      `contentViews*contentFee`, but the owner of the catalog may change
-    ///      the value of contentFee at any time.
+    ///      credit owed to an author. This could have been simply evaluated 
+    ///      with `contentViews*contentFee`, but the owner of the catalog may
+    ///      change the value of contentFee at any time.
     struct AuthorInfo {
         uint contentCredit;
         uint contentViews;
@@ -51,7 +51,7 @@ contract Catalog {
     uint public contentFee = 0.2 finney;
 
     /// @notice The price of a premium subscription
-    uint public premiumFee = 1 finney;
+    uint public premiumFee = 10 finney;
 
     /// @notice The period of time in which a consumer can get the acquired 
     ///         content
