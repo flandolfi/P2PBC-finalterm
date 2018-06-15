@@ -12,6 +12,10 @@ contract ContentManager is BaseContentManager {
     address private publisher;
     mapping (address => uint) private grants;
 
+    // Events
+    event AccessGranted(address to, uint until);
+    event ContentConsumed(address by);
+
 
     /// @notice Modifier for limiting access to a certain user
     modifier onlyBy(address _account) {
